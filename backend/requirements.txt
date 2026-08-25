@@ -1,2 +1,6 @@
 Flask
 gunicorn
+streamlit
+requests
+pandas
+plotly
