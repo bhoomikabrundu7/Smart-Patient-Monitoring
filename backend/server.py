@@ -1,100 +1,313 @@
 from flask import Flask, request, jsonify
 import os
 
-from data_handler import save_sensor_data
+from .data_handler import (
+    save_sensor_data,
+    get_sensor_history
+)
+
+from .alerts import check_patient_status
+
 
 app = Flask(__name__)
 
-# Latest sensor reading
+
+# ============================================================
+# LATEST DATA
+# ============================================================
+
 latest_data = {
     "temperature": 0,
     "heart_rate": 0,
     "spo2": 0,
-    "fall": False
+    "fall": False,
+    "mode": "WAITING",
+    "status": "WAITING",
+    "alerts": []
 }
 
-# Sensor history for dashboard
-history = []
 
+# ============================================================
+# HOME
+# ============================================================
 
 @app.route("/")
 def home():
-    return "Smart Patient Monitoring Backend is Running"
+
+    return (
+        "CareMatrix Smart Patient Monitoring Backend is Running"
+    )
 
 
-@app.route("/sensor-data", methods=["POST"])
+# ============================================================
+# SENSOR DATA
+# ============================================================
+
+@app.route(
+    "/sensor-data",
+    methods=["POST"]
+)
 def receive_sensor_data():
 
     global latest_data
 
-    data = request.get_json(silent=True)
+    data = request.get_json(
+        silent=True
+    )
 
     if not isinstance(data, dict):
+
         return jsonify({
             "status": "error",
             "message": "Invalid JSON"
         }), 400
 
-    # Receive sensor values
-    latest_data = {
-        "temperature": data.get("temperature", 0),
-        "heart_rate": data.get("heart_rate", 0),
-        "spo2": data.get("spo2", 0),
-        "fall": data.get("fall", False)
-    }
 
-    # Keep history
-    history.append(latest_data.copy())
+    # --------------------------------------------------------
+    # GET VALUES
+    # --------------------------------------------------------
 
-    # Keep maximum 100 readings
-    if len(history) > 100:
-        history.pop(0)
+    try:
 
-    # Print received data
-    print("\n========== SENSOR DATA ==========")
-    print("Temperature:", latest_data["temperature"])
-    print("Heart Rate:", latest_data["heart_rate"])
-    print("SpO2:", latest_data["spo2"])
-    print("Fall:", latest_data["fall"])
-    print("=================================")
+        temperature = float(
+            data.get(
+                "temperature",
+                0
+            )
+        )
 
-    # Save to CSV
-    save_sensor_data(
-        latest_data["temperature"],
-        latest_data["heart_rate"],
-        latest_data["spo2"],
-        latest_data["fall"]
+        heart_rate = int(
+            data.get(
+                "heart_rate",
+                0
+            )
+        )
+
+        spo2 = int(
+            data.get(
+                "spo2",
+                0
+            )
+        )
+
+        fall = bool(
+            data.get(
+                "fall",
+                False
+            )
+        )
+
+    except (
+        ValueError,
+        TypeError
+    ):
+
+        return jsonify({
+            "status": "error",
+            "message": "Invalid sensor values"
+        }), 400
+
+
+    # --------------------------------------------------------
+    # MODE FROM ESP32
+    # --------------------------------------------------------
+
+    mode = str(
+        data.get(
+            "mode",
+            "NORMAL"
+        )
+    ).upper()
+
+    if mode not in [
+        "NORMAL",
+        "ABNORMAL"
+    ]:
+        mode = "NORMAL"
+
+
+    # --------------------------------------------------------
+    # CHECK VITAL SIGNS
+    # --------------------------------------------------------
+
+    result = check_patient_status(
+        temperature,
+        heart_rate,
+        spo2,
+        fall
     )
 
+    alerts = result["alerts"]
+
+
+    # --------------------------------------------------------
+    # PATIENT STATUS
+    # --------------------------------------------------------
+
+    if mode == "ABNORMAL" or alerts:
+
+        patient_status = "ABNORMAL"
+
+    else:
+
+        patient_status = "NORMAL"
+
+
+    # --------------------------------------------------------
+    # LATEST DATA
+    # --------------------------------------------------------
+
+    latest_data = {
+
+        "temperature": temperature,
+
+        "heart_rate": heart_rate,
+
+        "spo2": spo2,
+
+        "fall": fall,
+
+        "mode": mode,
+
+        "status": patient_status,
+
+        "alerts": alerts
+    }
+
+
+    # --------------------------------------------------------
+    # PRINT
+    # --------------------------------------------------------
+
+    print(
+        "\n========== CAREMATRIX SENSOR DATA =========="
+    )
+
+    print(
+        "Temperature:",
+        temperature
+    )
+
+    print(
+        "Heart Rate:",
+        heart_rate
+    )
+
+    print(
+        "SpO2:",
+        spo2
+    )
+
+    print(
+        "Fall:",
+        fall
+    )
+
+    print(
+        "Mode:",
+        mode
+    )
+
+    print(
+        "Status:",
+        patient_status
+    )
+
+    print(
+        "Alerts:",
+        alerts
+    )
+
+    print(
+        "============================================"
+    )
+
+
+    # --------------------------------------------------------
+    # SAVE
+    # --------------------------------------------------------
+
+    save_sensor_data(
+        temperature,
+        heart_rate,
+        spo2,
+        fall,
+        mode
+    )
+
+
+    # --------------------------------------------------------
+    # RESPONSE
+    # --------------------------------------------------------
+
     return jsonify({
+
         "status": "success",
-        "message": "Sensor data received"
+
+        "message":
+            "Sensor data received",
+
+        "mode":
+            mode,
+
+        "patient_status":
+            patient_status,
+
+        "alerts":
+            alerts
+
     }), 200
 
 
-# ==========================================
-# LATEST SENSOR DATA
-# ==========================================
+# ============================================================
+# LATEST
+# ============================================================
 
-@app.route("/latest", methods=["GET"])
+@app.route(
+    "/latest",
+    methods=["GET"]
+)
 def latest():
 
-    return jsonify(latest_data)
+    return jsonify(
+        latest_data
+    )
 
 
-# ==========================================
-# SENSOR HISTORY
-# ==========================================
+# ============================================================
+# HISTORY
+# ============================================================
 
-@app.route("/history", methods=["GET"])
+@app.route(
+    "/history",
+    methods=["GET"]
+)
 def get_history():
 
-    return jsonify(history)
+    return jsonify(
+        get_sensor_history()
+    )
 
 
-# ==========================================
-# START SERVER
-# ==========================================
+# ============================================================
+# HEALTH
+# ============================================================
+
+@app.route(
+    "/health",
+    methods=["GET"]
+)
+def health():
+
+    return jsonify({
+        "status": "ok",
+        "service": "CareMatrix Backend"
+    })
+
+
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
 
