@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 
-from backend.data_handler import save_sensor_data
+from data_handler import save_sensor_data
 
 app = Flask(__name__)
 
@@ -28,15 +28,12 @@ def receive_sensor_data():
     fall = data.get("fall", False)
 
     print("\n========== SENSOR DATA ==========")
-
     print("Temperature:", temperature)
     print("Heart Rate:", heart_rate)
     print("SpO2:", spo2)
     print("Fall:", fall)
-
     print("=================================")
 
-    # Save reading to CSV
     save_sensor_data(
         temperature,
         heart_rate,
