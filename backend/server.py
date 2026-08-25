@@ -5,6 +5,17 @@ from data_handler import save_sensor_data
 
 app = Flask(__name__)
 
+# Latest sensor reading
+latest_data = {
+    "temperature": 0,
+    "heart_rate": 0,
+    "spo2": 0,
+    "fall": False
+}
+
+# Sensor history for dashboard
+history = []
+
 
 @app.route("/")
 def home():
@@ -14,31 +25,45 @@ def home():
 @app.route("/sensor-data", methods=["POST"])
 def receive_sensor_data():
 
-    data = request.get_json()
+    global latest_data
 
-    if not data:
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
         return jsonify({
             "status": "error",
             "message": "Invalid JSON"
         }), 400
 
-    temperature = data.get("temperature")
-    heart_rate = data.get("heart_rate")
-    spo2 = data.get("spo2")
-    fall = data.get("fall", False)
+    # Receive sensor values
+    latest_data = {
+        "temperature": data.get("temperature", 0),
+        "heart_rate": data.get("heart_rate", 0),
+        "spo2": data.get("spo2", 0),
+        "fall": data.get("fall", False)
+    }
 
+    # Keep history
+    history.append(latest_data.copy())
+
+    # Keep maximum 100 readings
+    if len(history) > 100:
+        history.pop(0)
+
+    # Print received data
     print("\n========== SENSOR DATA ==========")
-    print("Temperature:", temperature)
-    print("Heart Rate:", heart_rate)
-    print("SpO2:", spo2)
-    print("Fall:", fall)
+    print("Temperature:", latest_data["temperature"])
+    print("Heart Rate:", latest_data["heart_rate"])
+    print("SpO2:", latest_data["spo2"])
+    print("Fall:", latest_data["fall"])
     print("=================================")
 
+    # Save to CSV
     save_sensor_data(
-        temperature,
-        heart_rate,
-        spo2,
-        fall
+        latest_data["temperature"],
+        latest_data["heart_rate"],
+        latest_data["spo2"],
+        latest_data["fall"]
     )
 
     return jsonify({
@@ -46,6 +71,30 @@ def receive_sensor_data():
         "message": "Sensor data received"
     }), 200
 
+
+# ==========================================
+# LATEST SENSOR DATA
+# ==========================================
+
+@app.route("/latest", methods=["GET"])
+def latest():
+
+    return jsonify(latest_data)
+
+
+# ==========================================
+# SENSOR HISTORY
+# ==========================================
+
+@app.route("/history", methods=["GET"])
+def get_history():
+
+    return jsonify(history)
+
+
+# ==========================================
+# START SERVER
+# ==========================================
 
 if __name__ == "__main__":
 
