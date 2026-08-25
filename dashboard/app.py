@@ -1,7 +1,18 @@
-import streamlit as st
-import requests
 import time
-import html
+import requests
+import streamlit as st
+
+from components import (
+    render_header,
+    render_alert,
+    render_metric,
+    render_waiting_metric,
+    render_safety,
+    render_actions,
+)
+
+from charts import render_health_chart
+
 
 # ============================================================
 # PAGE CONFIG
@@ -11,11 +22,12 @@ st.set_page_config(
     page_title="CareMatrix",
     page_icon="❤️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
+
 # ============================================================
-# CONFIG
+# BACKEND
 # ============================================================
 
 BACKEND_URL = "https://smart-patient-monitoring.onrender.com"
@@ -23,92 +35,121 @@ BACKEND_URL = "https://smart-patient-monitoring.onrender.com"
 LATEST_URL = f"{BACKEND_URL}/latest"
 HISTORY_URL = f"{BACKEND_URL}/history"
 
-# ============================================================
-# SESSION STATE
-# ============================================================
 
-if "sound_enabled" not in st.session_state:
-    st.session_state.sound_enabled = False
+# ============================================================
+# SESSION
+# ============================================================
 
 if "intro_done" not in st.session_state:
     st.session_state.intro_done = False
 
-if "last_mode" not in st.session_state:
-    st.session_state.last_mode = None
-
-if "last_alert" not in st.session_state:
-    st.session_state.last_alert = False
-
 
 # ============================================================
-# GLOBAL CSS
+# CSS
 # ============================================================
 
 st.markdown(
-    """
+"""
 <style>
 
 @import url(
 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 );
 
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
+
+* {
+    box-sizing: border-box;
 }
 
+
+html,
+body,
+[class*="css"] {
+    font-family: Inter, sans-serif;
+}
+
+
 .stApp {
+
     background:
         radial-gradient(
             circle at 10% 0%,
-            rgba(20, 130, 255, 0.12),
-            transparent 28%
+            rgba(0,132,255,0.14),
+            transparent 30%
         ),
+
         radial-gradient(
-            circle at 90% 10%,
-            rgba(0, 210, 190, 0.08),
-            transparent 25%
+            circle at 90% 20%,
+            rgba(0,210,190,0.08),
+            transparent 30%
         ),
+
         #07111f;
+
     color: #f5f9ff;
 }
 
-/* Remove default Streamlit top spacing */
+
 .block-container {
+
     max-width: 1450px;
-    padding-top: 1.2rem;
-    padding-bottom: 3rem;
+
+    padding-top: 25px;
+
+    padding-bottom: 50px;
 }
 
-/* Hide menu/footer */
-#MainMenu {
-    visibility: hidden;
-}
 
-footer {
-    visibility: hidden;
-}
-
+#MainMenu,
+footer,
 header {
+
     visibility: hidden;
 }
 
-/* =========================================================
-   BRAND
-   ========================================================= */
 
-.brand {
+/* ============================================================
+HEADER
+============================================================ */
+
+.top-header {
+
     display: flex;
+
     align-items: center;
-    gap: 13px;
+
+    justify-content: space-between;
+
+    padding: 10px 0 22px;
+
+    border-bottom:
+        1px solid rgba(255,255,255,0.08);
+
+    margin-bottom: 24px;
 }
 
-.brand-heart {
-    width: 48px;
-    height: 48px;
-    border-radius: 15px;
+
+.brand-area {
 
     display: flex;
+
     align-items: center;
+
+    gap: 14px;
+}
+
+
+.brand-logo {
+
+    width: 52px;
+    height: 52px;
+
+    border-radius: 17px;
+
+    display: flex;
+
+    align-items: center;
+
     justify-content: center;
 
     background:
@@ -118,379 +159,715 @@ header {
             #00d6c9
         );
 
-    box-shadow:
-        0 10px 30px rgba(0, 150, 255, 0.25);
+    color: white;
 
-    font-size: 27px;
+    font-size: 28px;
+
+    box-shadow:
+        0 10px 30px
+        rgba(0,150,255,0.25);
 }
+
 
 .brand-name {
+
     font-size: 31px;
+
     font-weight: 800;
-    letter-spacing: -1.3px;
+
+    letter-spacing: -1px;
 }
+
 
 .brand-name span {
-    color: #28a9ff;
-}
 
-.brand-subtitle {
-    color: #91a5bd;
-    font-size: 12px;
-    margin-top: -3px;
-}
-
-/* =========================================================
-   LIVE PILL
-   ========================================================= */
-
-.live-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-
-    padding: 8px 13px;
-
-    border-radius: 30px;
-
-    background: rgba(0, 220, 150, 0.09);
-
-    border: 1px solid rgba(0, 220, 150, 0.28);
-
-    color: #51e6ac;
-
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.live-dot {
-    width: 8px;
-    height: 8px;
-
-    background: #35e39d;
-
-    border-radius: 50%;
-
-    box-shadow:
-        0 0 12px #35e39d;
-}
-
-/* =========================================================
-   TOP BAR
-   ========================================================= */
-
-.topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    padding-bottom: 18px;
-
-    border-bottom:
-        1px solid rgba(255,255,255,0.08);
-
-    margin-bottom: 22px;
-}
-
-/* =========================================================
-   INTRO
-   ========================================================= */
-
-.intro {
-    text-align: center;
-
-    padding: 70px 20px;
-
-    max-width: 800px;
-
-    margin: 80px auto;
-}
-
-.intro-heart {
-    font-size: 52px;
-}
-
-.intro h1 {
-    font-size: 42px;
-    margin: 12px 0 8px;
-}
-
-.intro h1 span {
     color: #20a9ff;
 }
 
-.intro p {
-    color: #8fa4bd;
-    font-size: 16px;
-    line-height: 1.7;
-}
 
-.intro-small {
-    color: #5f7892;
+.brand-subtitle {
+
+    color: #8da2ba;
+
     font-size: 12px;
-    margin-top: 25px;
+
+    margin-top: 2px;
 }
 
-/* =========================================================
-   ALERT
-   ========================================================= */
 
-.alert-critical {
+.header-right {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 12px;
+}
+
+
+.live-badge {
+
+    padding: 9px 15px;
+
+    border-radius: 30px;
+
+    font-size: 11px;
+
+    font-weight: 800;
+}
+
+
+.live-normal {
+
+    color: #46dfa6;
+
+    background:
+        rgba(40,220,155,0.08);
+
     border:
-        1px solid rgba(255, 61, 83, 0.65);
+        1px solid rgba(40,220,155,0.25);
+}
+
+
+.live-alert {
+
+    color: #ff6678;
+
+    background:
+        rgba(255,50,70,0.10);
+
+    border:
+        1px solid rgba(255,50,70,0.35);
+}
+
+
+.live-waiting {
+
+    color: #ffd166;
+
+    background:
+        rgba(255,209,102,0.08);
+
+    border:
+        1px solid rgba(255,209,102,0.25);
+}
+
+
+.live-dot {
+
+    display: inline-block;
+
+    width: 8px;
+    height: 8px;
+
+    margin-right: 6px;
+
+    border-radius: 50%;
+
+    background: currentColor;
+}
+
+
+.patient-badge {
+
+    padding: 9px 14px;
+
+    border-radius: 12px;
+
+    background:
+        rgba(255,255,255,0.04);
+
+    border:
+        1px solid rgba(255,255,255,0.08);
+
+    color: #9bb0c8;
+
+    font-size: 11px;
+}
+
+
+.patient-badge b {
+
+    color: #e8f3ff;
+}
+
+
+.avatar {
+
+    width: 39px;
+    height: 39px;
+
+    border-radius: 50%;
+
+    background: #14304d;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+}
+
+
+/* ============================================================
+ALERT
+============================================================ */
+
+.critical-alert {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 18px;
+
+    padding: 20px 24px;
+
+    margin-bottom: 24px;
+
+    border-radius: 18px;
 
     background:
         linear-gradient(
             135deg,
-            rgba(120, 20, 35, 0.45),
-            rgba(55, 10, 20, 0.75)
+            rgba(115,20,38,0.55),
+            rgba(40,10,20,0.85)
         );
 
-    border-radius: 18px;
-
-    padding: 18px 22px;
-
-    margin-bottom: 22px;
+    border:
+        1px solid rgba(255,60,80,0.55);
 
     box-shadow:
-        0 0 35px rgba(255, 30, 60, 0.12);
+        0 10px 40px
+        rgba(255,30,60,0.10);
 }
 
-.alert-critical-title {
+
+.alert-icon {
+
+    width: 45px;
+    height: 45px;
+
+    border-radius: 13px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    background:
+        rgba(255,50,70,0.15);
+
+    color: #ff596d;
+
+    font-size: 24px;
+}
+
+
+.alert-content {
+
+    flex: 1;
+}
+
+
+.alert-title {
+
     color: #ff5268;
+
     font-size: 18px;
+
     font-weight: 800;
 }
 
-.alert-critical-text {
-    color: #ffb0b9;
-    font-size: 13px;
+
+.alert-message {
+
+    color: #ffb5bd;
+
+    font-size: 12px;
+
     margin-top: 4px;
 }
 
-/* =========================================================
-   NORMAL STATUS
-   ========================================================= */
 
-.status-normal {
-    border:
-        1px solid rgba(40, 220, 155, 0.25);
+.alert-symbol {
+
+    font-size: 30px;
+}
+
+
+.stable-alert {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 15px;
+
+    padding: 19px 23px;
+
+    margin-bottom: 24px;
+
+    border-radius: 18px;
 
     background:
         linear-gradient(
             135deg,
-            rgba(20, 100, 75, 0.25),
-            rgba(10, 50, 45, 0.35)
+            rgba(20,100,75,0.25),
+            rgba(10,45,40,0.35)
         );
 
-    border-radius: 18px;
-
-    padding: 18px 22px;
-
-    margin-bottom: 22px;
+    border:
+        1px solid rgba(40,220,155,0.25);
 }
 
-.status-normal-title {
-    color: #43dfa6;
-    font-size: 18px;
+
+.stable-icon {
+
+    width: 43px;
+    height: 43px;
+
+    border-radius: 50%;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    background:
+        rgba(40,220,155,0.12);
+
+    color: #42dfa5;
+
+    font-size: 22px;
+
     font-weight: 800;
 }
 
-.status-normal-text {
-    color: #91cdb9;
-    font-size: 13px;
+
+.stable-title {
+
+    color: #43dfa6;
+
+    font-size: 17px;
+
+    font-weight: 800;
 }
 
-/* =========================================================
-   CARDS
-   ========================================================= */
 
-.metric-card {
-    position: relative;
+.stable-message {
 
-    min-height: 145px;
+    color: #91cdb9;
+
+    font-size: 12px;
+
+    margin-top: 3px;
+}
+
+
+.waiting-alert {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 15px;
 
     padding: 20px;
 
+    margin-bottom: 24px;
+
+    border-radius: 18px;
+
+    background:
+        rgba(255,209,102,0.06);
+
+    border:
+        1px solid rgba(255,209,102,0.20);
+}
+
+
+.waiting-icon {
+
+    font-size: 30px;
+
+    color: #ffd166;
+}
+
+
+.waiting-title {
+
+    color: #ffd166;
+
+    font-size: 16px;
+
+    font-weight: 800;
+}
+
+
+.waiting-message {
+
+    color: #a8a8a8;
+
+    font-size: 12px;
+
+    margin-top: 3px;
+}
+
+
+/* ============================================================
+SECTION
+============================================================ */
+
+.section-title {
+
+    color: #dbe8f5;
+
+    font-size: 14px;
+
+    font-weight: 800;
+
+    margin: 24px 0 12px;
+}
+
+
+/* ============================================================
+METRICS
+============================================================ */
+
+.metric-card {
+
+    min-height: 175px;
+
+    padding: 21px;
+
     border-radius: 18px;
 
     background:
         linear-gradient(
             145deg,
-            rgba(20, 35, 55, 0.95),
-            rgba(10, 21, 36, 0.95)
+            rgba(18,36,57,0.96),
+            rgba(9,21,36,0.96)
         );
 
     border:
-        1px solid rgba(120, 170, 220, 0.14);
+        1px solid rgba(120,170,220,0.13);
 
     box-shadow:
-        0 15px 40px rgba(0,0,0,0.16);
+        0 15px 35px
+        rgba(0,0,0,0.16);
 }
 
-.metric-card.alert {
-    border:
-        1px solid rgba(255, 60, 80, 0.4);
+
+.metric-card.abnormal {
 
     background:
         linear-gradient(
             145deg,
-            rgba(65, 20, 30, 0.85),
-            rgba(25, 12, 20, 0.95)
+            rgba(70,20,32,0.90),
+            rgba(25,10,18,0.96)
         );
+
+    border:
+        1px solid rgba(255,60,80,0.40);
 }
+
+
+.metric-top {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+}
+
 
 .metric-icon {
-    font-size: 25px;
+
+    font-size: 24px;
 }
 
-.metric-name {
-    color: #849bb4;
+
+.metric-title {
+
+    color: #8da4bd;
+
     font-size: 12px;
-    margin-top: 8px;
+
+    font-weight: 600;
 }
+
 
 .metric-value {
+
     color: #f4f8ff;
 
-    font-size: 28px;
+    font-size: 31px;
+
     font-weight: 800;
 
-    margin-top: 5px;
+    margin-top: 20px;
 }
 
-.metric-card.alert .metric-value {
-    color: #ff5268;
+
+.metric-card.abnormal
+.metric-value {
+
+    color: #ff6173;
 }
 
-.metric-normal {
+
+.metric-value span {
+
+    color: #91a6bd;
+
+    font-size: 13px;
+
+    font-weight: 600;
+}
+
+
+.metric-status {
+
     display: inline-block;
 
-    margin-top: 8px;
+    margin-top: 14px;
 
-    padding: 4px 9px;
+    padding: 5px 10px;
 
     border-radius: 20px;
 
-    background: rgba(40,220,155,0.09);
+    font-size: 10px;
+
+    font-weight: 800;
+}
+
+
+.metric-status.normal {
 
     color: #43dfa6;
 
-    font-size: 10px;
-    font-weight: 700;
+    background:
+        rgba(40,220,155,0.09);
 }
 
-.metric-danger {
-    display: inline-block;
 
-    margin-top: 8px;
-
-    padding: 4px 9px;
-
-    border-radius: 20px;
-
-    background: rgba(255,50,70,0.12);
+.metric-status.danger {
 
     color: #ff6173;
 
-    font-size: 10px;
-    font-weight: 700;
+    background:
+        rgba(255,50,70,0.12);
 }
 
-/* =========================================================
-   SECTION
-   ========================================================= */
 
-.section-title {
-    color: #dce8f5;
+.metric-status.waiting {
 
-    font-size: 15px;
+    color: #ffd166;
 
-    font-weight: 800;
-
-    margin:
-        24px 0 12px;
+    background:
+        rgba(255,209,102,0.10);
 }
 
-/* =========================================================
-   SAFETY CARDS
-   ========================================================= */
+
+.waiting-value {
+
+    color: #71859b;
+
+    font-size: 36px;
+}
+
+
+/* ============================================================
+SAFETY
+============================================================ */
+
+.safety-grid {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(3, 1fr);
+
+    gap: 14px;
+}
+
 
 .safety-card {
-    padding: 18px;
+
+    padding: 19px;
 
     border-radius: 17px;
 
     background:
-        rgba(16, 29, 47, 0.88);
+        rgba(15,29,47,0.88);
 
     border:
         1px solid rgba(120,170,220,0.12);
 }
 
+
 .safety-label {
-    color: #758ca5;
-    font-size: 11px;
+
+    color: #758da6;
+
+    font-size: 10px;
+
+    font-weight: 700;
 }
 
-.safety-value {
-    margin-top: 6px;
 
-    font-size: 20px;
+.safety-value {
+
+    margin-top: 8px;
+
+    font-size: 18px;
+
     font-weight: 800;
 }
 
-.safe {
+
+.safe-text {
+
     color: #42dfa5;
 }
 
-.danger {
-    color: #ff5268;
+
+.danger-text {
+
+    color: #ff596d;
 }
 
-/* =========================================================
-   INFO PANEL
-   ========================================================= */
 
-.info-panel {
-    padding: 20px;
+.waiting-text {
+
+    color: #ffd166;
+}
+
+
+/* ============================================================
+ACTION
+============================================================ */
+
+.action-panel {
+
+    margin-top: 25px;
+
+    padding: 21px;
 
     border-radius: 18px;
+}
+
+
+.normal-panel {
 
     background:
-        linear-gradient(
-            145deg,
-            rgba(18,34,54,0.95),
-            rgba(8,20,34,0.95)
-        );
+        rgba(15,65,55,0.25);
 
     border:
-        1px solid rgba(100,160,220,0.13);
+        1px solid rgba(40,220,155,0.22);
 }
 
-.info-label {
-    color: #7189a2;
+
+.abnormal-panel {
+
+    background:
+        rgba(70,15,28,0.30);
+
+    border:
+        1px solid rgba(255,60,80,0.35);
+}
+
+
+.waiting-panel {
+
+    background:
+        rgba(255,209,102,0.05);
+
+    border:
+        1px solid rgba(255,209,102,0.20);
+}
+
+
+.action-header {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 14px;
+}
+
+
+.action-header > span {
+
+    font-size: 26px;
+}
+
+
+.action-title {
+
+    color: #eef7ff;
+
+    font-size: 15px;
+
+    font-weight: 800;
+}
+
+
+.action-subtitle {
+
+    color: #8fa6be;
+
+    font-size: 11px;
+
+    margin-top: 3px;
+}
+
+
+.action-row {
+
+    display: flex;
+
+    gap: 10px;
+
+    margin-top: 18px;
+}
+
+
+.action-item {
+
+    flex: 1;
+
+    padding: 11px;
+
+    border-radius: 10px;
+
+    background:
+        rgba(255,255,255,0.035);
+
+    color: #9db1c7;
+
     font-size: 11px;
 }
 
-.info-value {
-    color: #e9f3ff;
-    font-weight: 700;
-    margin-top: 4px;
-}
 
-/* =========================================================
-   FOOTER
-   ========================================================= */
+/* ============================================================
+FOOTER
+============================================================ */
 
 .footer {
+
     text-align: center;
 
-    color: #506982;
+    color: #526a83;
 
-    font-size: 11px;
+    font-size: 10px;
 
-    margin-top: 40px;
+    margin-top: 45px;
 
     padding-top: 20px;
 
@@ -498,97 +875,156 @@ header {
         1px solid rgba(255,255,255,0.06);
 }
 
-/* =========================================================
-   MOBILE
-   ========================================================= */
 
-@media (max-width: 768px) {
+/* ============================================================
+MOBILE
+============================================================ */
+
+@media (max-width: 900px) {
 
     .block-container {
-        padding-left: 13px;
-        padding-right: 13px;
+
+        padding-left: 15px;
+
+        padding-right: 15px;
     }
+
+
+    .top-header {
+
+        align-items: flex-start;
+    }
+
+
+    .header-right {
+
+        flex-direction: column;
+
+        align-items: flex-end;
+    }
+
+
+    .patient-badge,
+    .avatar {
+
+        display: none;
+    }
+
 
     .brand-name {
-        font-size: 24px;
+
+        font-size: 25px;
     }
 
-    .brand-heart {
-        width: 42px;
-        height: 42px;
+
+    .brand-subtitle {
+
+        font-size: 10px;
     }
 
-    .intro {
-        padding: 45px 12px;
-        margin: 30px auto;
+
+    .safety-grid {
+
+        grid-template-columns: 1fr;
     }
 
-    .intro h1 {
-        font-size: 31px;
+
+    .action-row {
+
+        flex-direction: column;
     }
 
-    .intro p {
-        font-size: 14px;
-    }
 
     .metric-card {
-        min-height: 125px;
-    }
 
-    .metric-value {
-        font-size: 24px;
+        min-height: 150px;
     }
 }
 
 </style>
 """,
-    unsafe_allow_html=True
+unsafe_allow_html=True
 )
 
 
 # ============================================================
-# INTRO SCREEN — ABOUT THE PROJECT
+# INTRO
 # ============================================================
 
 if not st.session_state.intro_done:
 
     st.markdown(
-        """
-        <div class="intro">
+    """
+    <div style="
+        min-height:75vh;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+    ">
 
-            <div class="intro-heart">❤️</div>
+        <div style="
+            max-width:700px;
+            padding:60px 35px;
+        ">
 
-            <h1>
-                Welcome to <span>CareMatrix</span>
+            <div style="
+                font-size:60px;
+                margin-bottom:15px;
+            ">
+                ❤️
+            </div>
+
+            <div style="
+                color:#20a9ff;
+                font-size:14px;
+                font-weight:700;
+                letter-spacing:2px;
+            ">
+                SMART PATIENT MONITORING
+            </div>
+
+            <h1 style="
+                font-size:46px;
+                margin:10px 0;
+                color:#f4f8ff;
+            ">
+                CareMatrix
             </h1>
 
-            <p>
-                Smart Patient Monitoring & Alert Network
+            <p style="
+                color:#9eb2c8;
+                font-size:17px;
+                line-height:1.7;
+            ">
+                An IoT-based system that monitors patient vital signs
+                in real time and detects abnormal conditions and falls early.
             </p>
 
-            <p>
-                An IoT-based monitoring system that watches
-                patient vital signs in real time and detects
-                abnormal conditions and falls early.
-            </p>
-
-            <div class="intro-small">
-                Starting patient monitoring...
+            <div style="
+                margin-top:35px;
+                color:#42dfa5;
+                font-size:13px;
+            ">
+                ● Starting patient monitoring...
             </div>
 
         </div>
-        """,
-        unsafe_allow_html=True
+
+    </div>
+    """,
+    unsafe_allow_html=True
     )
 
     time.sleep(5)
 
     st.session_state.intro_done = True
+
     st.rerun()
 
 
 # ============================================================
-# FETCH LATEST DATA
+# GET LATEST DATA
 # ============================================================
 
 def get_latest():
@@ -597,21 +1033,27 @@ def get_latest():
 
         response = requests.get(
             LATEST_URL,
-            timeout=10
+            timeout=15
         )
 
         response.raise_for_status()
 
-        data = response.json()
+        result = response.json()
 
-        if not isinstance(data, dict):
-            return None
+        if isinstance(result, dict):
 
-        return data
+            return result
 
-    except Exception:
+    except Exception as error:
+
         return None
 
+    return None
+
+
+# ============================================================
+# GET HISTORY
+# ============================================================
 
 def get_history():
 
@@ -619,20 +1061,22 @@ def get_history():
 
         response = requests.get(
             HISTORY_URL,
-            timeout=10
+            timeout=15
         )
 
         response.raise_for_status()
 
-        data = response.json()
+        result = response.json()
 
-        if isinstance(data, list):
-            return data
+        if isinstance(result, list):
 
-        return []
+            return result
 
     except Exception:
+
         return []
+
+    return []
 
 
 # ============================================================
@@ -645,73 +1089,64 @@ history = get_history()
 
 
 # ============================================================
-# HEADER
-# ============================================================
-
-st.markdown(
-    """
-    <div class="topbar">
-
-        <div class="brand">
-
-            <div class="brand-heart">
-                ❤️
-            </div>
-
-            <div>
-
-                <div class="brand-name">
-                    Care<span>Matrix</span>
-                </div>
-
-                <div class="brand-subtitle">
-                    Smart Patient Monitoring & Alert Network
-                </div>
-
-            </div>
-
-        </div>
-
-        <div class="live-pill">
-            <span class="live-dot"></span>
-            LIVE MONITORING
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# BACKEND ERROR
+# NO DATA
 # ============================================================
 
 if data is None:
 
+    render_header("WAITING")
+
+    render_alert(
+        abnormal=False,
+        fall=False,
+        waiting=True
+    )
+
     st.markdown(
-        """
-        <div class="alert-critical">
+    """
+    <div class="section-title">
+        Current Patient Readings
+    </div>
+    """,
+    unsafe_allow_html=True
+    )
 
-            <div class="alert-critical-title">
-                ⚠ Backend connection unavailable
-            </div>
+    c1, c2, c3 = st.columns(3)
 
-            <div class="alert-critical-text">
-                CareMatrix cannot currently retrieve patient
-                data from the monitoring server.
-            </div>
+    with c1:
+        render_waiting_metric(
+            "❤️",
+            "Heart Rate"
+        )
 
-        </div>
-        """,
-        unsafe_allow_html=True
+    with c2:
+        render_waiting_metric(
+            "🌡️",
+            "Temperature"
+        )
+
+    with c3:
+        render_waiting_metric(
+            "🫁",
+            "SpO₂"
+        )
+
+    render_safety(
+        fall=False,
+        patient_status="WAITING",
+        mode="WAITING"
+    )
+
+    render_actions(
+        abnormal=False,
+        waiting=True
     )
 
     st.stop()
 
 
 # ============================================================
-# READ DATA
+# READ SENSOR DATA
 # ============================================================
 
 temperature = float(
@@ -730,74 +1165,130 @@ fall = bool(
     data.get("fall", False)
 )
 
-mode = str(
-    data.get("mode", "NORMAL")
-).upper()
+
+# ============================================================
+# DETECT EMPTY INITIAL DATA
+# ============================================================
+
+empty_data = (
+    temperature == 0
+    and heart_rate == 0
+    and spo2 == 0
+    and fall is False
+)
 
 
 # ============================================================
-# DETERMINE STATUS
+# EMPTY DATA SCREEN
 # ============================================================
+
+if empty_data:
+
+    render_header("WAITING")
+
+    render_alert(
+        abnormal=False,
+        fall=False,
+        waiting=True
+    )
+
+    st.markdown(
+    """
+    <div class="section-title">
+        Current Patient Readings
+    </div>
+    """,
+    unsafe_allow_html=True
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        render_waiting_metric(
+            "❤️",
+            "Heart Rate"
+        )
+
+    with c2:
+        render_waiting_metric(
+            "🌡️",
+            "Temperature"
+        )
+
+    with c3:
+        render_waiting_metric(
+            "🫁",
+            "SpO₂"
+        )
+
+    render_safety(
+        False,
+        "WAITING",
+        "WAITING"
+    )
+
+    render_actions(
+        False,
+        waiting=True
+    )
+
+    st.stop()
+
+
+# ============================================================
+# NORMAL / ABNORMAL
+# ============================================================
+
+heart_abnormal = (
+    heart_rate > 100
+    or heart_rate < 60
+)
+
+temperature_abnormal = (
+    temperature >= 38
+)
+
+spo2_abnormal = (
+    spo2 < 94
+)
 
 abnormal = (
-    mode == "ABNORMAL"
-    or temperature >= 38
-    or heart_rate > 100
-    or heart_rate < 60
-    or spo2 < 94
+    heart_abnormal
+    or temperature_abnormal
+    or spo2_abnormal
     or fall
 )
 
 
-if abnormal:
-    patient_status = "CRITICAL"
-else:
-    patient_status = "STABLE"
+mode = (
+    "ABNORMAL"
+    if abnormal
+    else "NORMAL"
+)
+
+
+patient_status = (
+    "CRITICAL"
+    if abnormal
+    else "STABLE"
+)
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+render_header(mode)
 
 
 # ============================================================
 # ALERT
 # ============================================================
 
-if abnormal:
-
-    st.markdown(
-        f"""
-        <div class="alert-critical">
-
-            <div class="alert-critical-title">
-                🚨 CRITICAL ALERT
-            </div>
-
-            <div class="alert-critical-text">
-                Abnormal patient condition detected.
-                Immediate attention may be required.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-else:
-
-    st.markdown(
-        """
-        <div class="status-normal">
-
-            <div class="status-normal-title">
-                ✓ PATIENT STABLE
-            </div>
-
-            <div class="status-normal-text">
-                All monitored vital signs are currently
-                within the expected range.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+render_alert(
+    abnormal,
+    fall
+)
 
 
 # ============================================================
@@ -805,318 +1296,83 @@ else:
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Current Patient Readings</div>',
-    unsafe_allow_html=True
+"""
+<div class="section-title">
+    Current Patient Readings
+</div>
+""",
+unsafe_allow_html=True
 )
 
+
+# ============================================================
+# METRICS
+# ============================================================
 
 c1, c2, c3 = st.columns(3)
 
 
-# ------------------------------------------------------------
-# HEART RATE
-# ------------------------------------------------------------
-
 with c1:
 
-    heart_alert = (
-        heart_rate > 100 or
-        heart_rate < 60
-    )
-
-    card_class = (
-        "metric-card alert"
-        if heart_alert
-        else "metric-card"
-    )
-
-    badge_class = (
-        "metric-danger"
-        if heart_alert
-        else "metric-normal"
-    )
-
-    badge_text = (
+    render_metric(
+        "❤️",
+        "Heart Rate",
+        heart_rate,
+        "BPM",
         "HIGH / LOW"
-        if heart_alert
-        else "NORMAL"
+        if heart_abnormal
+        else "NORMAL",
+        heart_abnormal
     )
 
-    st.markdown(
-        f"""
-        <div class="{card_class}">
-
-            <div class="metric-icon">
-                ❤️
-            </div>
-
-            <div class="metric-name">
-                HEART RATE
-            </div>
-
-            <div class="metric-value">
-                {heart_rate} <span style="font-size:14px">BPM</span>
-            </div>
-
-            <span class="{badge_class}">
-                {badge_text}
-            </span>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# ------------------------------------------------------------
-# TEMPERATURE
-# ------------------------------------------------------------
 
 with c2:
 
-    temp_alert = (
-        temperature >= 38
-    )
-
-    card_class = (
-        "metric-card alert"
-        if temp_alert
-        else "metric-card"
-    )
-
-    badge_class = (
-        "metric-danger"
-        if temp_alert
-        else "metric-normal"
-    )
-
-    badge_text = (
+    render_metric(
+        "🌡️",
+        "Temperature",
+        f"{temperature:.1f}",
+        "°C",
         "HIGH"
-        if temp_alert
-        else "NORMAL"
+        if temperature_abnormal
+        else "NORMAL",
+        temperature_abnormal
     )
 
-    st.markdown(
-        f"""
-        <div class="{card_class}">
-
-            <div class="metric-icon">
-                🌡️
-            </div>
-
-            <div class="metric-name">
-                TEMPERATURE
-            </div>
-
-            <div class="metric-value">
-                {temperature:.1f}
-                <span style="font-size:14px">°C</span>
-            </div>
-
-            <span class="{badge_class}">
-                {badge_text}
-            </span>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# ------------------------------------------------------------
-# SPO2
-# ------------------------------------------------------------
 
 with c3:
 
-    spo2_alert = (
-        spo2 < 94
-    )
-
-    card_class = (
-        "metric-card alert"
-        if spo2_alert
-        else "metric-card"
-    )
-
-    badge_class = (
-        "metric-danger"
-        if spo2_alert
-        else "metric-normal"
-    )
-
-    badge_text = (
+    render_metric(
+        "🫁",
+        "SpO₂",
+        spo2,
+        "%",
         "LOW"
-        if spo2_alert
-        else "NORMAL"
-    )
-
-    st.markdown(
-        f"""
-        <div class="{card_class}">
-
-            <div class="metric-icon">
-                🫁
-            </div>
-
-            <div class="metric-name">
-                BLOOD OXYGEN
-            </div>
-
-            <div class="metric-value">
-                {spo2}
-                <span style="font-size:14px">%</span>
-            </div>
-
-            <span class="{badge_class}">
-                {badge_text}
-            </span>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+        if spo2_abnormal
+        else "NORMAL",
+        spo2_abnormal
     )
 
 
 # ============================================================
-# SAFETY
+# PATIENT SAFETY
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Patient Safety</div>',
-    unsafe_allow_html=True
+"""
+<div class="section-title">
+    Patient Safety
+</div>
+""",
+unsafe_allow_html=True
 )
 
 
-s1, s2, s3 = st.columns(3)
-
-
-with s1:
-
-    fall_class = (
-        "danger"
-        if fall
-        else "safe"
-    )
-
-    fall_text = (
-        "🚨 FALL DETECTED"
-        if fall
-        else "✓ SAFE"
-    )
-
-    st.markdown(
-        f"""
-        <div class="safety-card">
-
-            <div class="safety-label">
-                FALL DETECTION
-            </div>
-
-            <div class="safety-value {fall_class}">
-                {fall_text}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-with s2:
-
-    status_class = (
-        "danger"
-        if abnormal
-        else "safe"
-    )
-
-    st.markdown(
-        f"""
-        <div class="safety-card">
-
-            <div class="safety-label">
-                PATIENT STATUS
-            </div>
-
-            <div class="safety-value {status_class}">
-                {patient_status}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-with s3:
-
-    mode_class = (
-        "danger"
-        if mode == "ABNORMAL"
-        else "safe"
-    )
-
-    st.markdown(
-        f"""
-        <div class="safety-card">
-
-            <div class="safety-label">
-                MONITORING MODE
-            </div>
-
-            <div class="safety-value {mode_class}">
-                {mode}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# ALERT SOUND
-# ============================================================
-
-st.markdown(
-    '<div class="section-title">Alert System</div>',
-    unsafe_allow_html=True
+render_safety(
+    fall,
+    patient_status,
+    mode
 )
-
-
-if abnormal:
-
-    if st.button(
-        "🔊 Enable Alert Sound",
-        use_container_width=False
-    ):
-
-        st.session_state.sound_enabled = True
-
-    if st.session_state.sound_enabled:
-
-        st.markdown(
-            """
-            <audio autoplay>
-                <source
-                    src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg"
-                    type="audio/ogg"
-                >
-            </audio>
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.success(
-            "Alert sound enabled."
-        )
-
-    else:
-
-        st.caption(
-            "Click Enable Alert Sound to allow browser audio."
-        )
 
 
 # ============================================================
@@ -1124,151 +1380,25 @@ if abnormal:
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Health Trends</div>',
-    unsafe_allow_html=True
+"""
+<div class="section-title">
+    Health Trends
+</div>
+""",
+unsafe_allow_html=True
 )
 
 
-if history:
-
-    try:
-
-        import pandas as pd
-
-        df = pd.DataFrame(history)
-
-        if not df.empty:
-
-            # Make sure expected columns exist
-
-            for column in [
-                "heart_rate",
-                "temperature",
-                "spo2"
-            ]:
-
-                if column not in df.columns:
-                    df[column] = 0
-
-            chart_df = df[
-                [
-                    "heart_rate",
-                    "temperature",
-                    "spo2"
-                ]
-            ].copy()
-
-            st.line_chart(
-                chart_df,
-                height=350
-            )
-
-    except Exception as e:
-
-        st.info(
-            "Health trend data is being prepared."
-        )
-
-else:
-
-    st.info(
-        "Waiting for more sensor readings..."
-    )
+render_health_chart(history)
 
 
 # ============================================================
-# CARETAKER / ALERT ACTIONS
+# CARETAKER ACTION
 # ============================================================
 
-st.markdown(
-    '<div class="section-title">Caregiver Actions</div>',
-    unsafe_allow_html=True
+render_actions(
+    abnormal
 )
-
-
-a1, a2 = st.columns(2)
-
-
-with a1:
-
-    if abnormal:
-
-        st.markdown(
-            """
-            <div class="alert-critical">
-
-                <div class="alert-critical-title">
-                    🔔 Caretaker Attention Required
-                </div>
-
-                <div class="alert-critical-text">
-                    Abnormal patient readings have been
-                    detected. Review the patient immediately.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    else:
-
-        st.markdown(
-            """
-            <div class="status-normal">
-
-                <div class="status-normal-title">
-                    ✓ No Immediate Action
-                </div>
-
-                <div class="status-normal-text">
-                    Patient readings are currently stable.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-with a2:
-
-    st.markdown(
-        f"""
-        <div class="info-panel">
-
-            <div class="info-label">
-                SYSTEM CONNECTION
-            </div>
-
-            <div class="info-value">
-                🟢 ESP32 → Render → CareMatrix
-            </div>
-
-            <br>
-
-            <div class="info-label">
-                CURRENT MODE
-            </div>
-
-            <div class="info-value">
-                {mode}
-            </div>
-
-            <br>
-
-            <div class="info-label">
-                LAST DATA
-            </div>
-
-            <div class="info-value">
-                Live sensor reading
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 
 # ============================================================
@@ -1276,24 +1406,27 @@ with a2:
 # ============================================================
 
 st.markdown(
-    """
-    <div class="footer">
+"""
+<div class="footer">
 
-        ❤️ CareMatrix —
-        Smart Patient Monitoring & Alert Network
+    ❤️ CareMatrix
 
-        <br><br>
+    <br>
 
-        Real-time IoT monitoring • Early detection • Safer care
+    Smart Patient Monitoring & Alert Network
 
-    </div>
-    """,
-    unsafe_allow_html=True
+    <br><br>
+
+    ESP32 → Render Backend → CareMatrix
+
+</div>
+""",
+unsafe_allow_html=True
 )
 
 
 # ============================================================
-# AUTO REFRESH
+# REFRESH
 # ============================================================
 
 time.sleep(5)
