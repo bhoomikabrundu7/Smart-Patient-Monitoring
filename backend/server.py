@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import os
+from datetime import datetime
 
 from .data_handler import (
     save_sensor_data,
@@ -26,6 +27,12 @@ latest_data = {
     "alerts": []
 }
 
+# ============================================================
+# LIVE SENSOR HISTORY
+# ============================================================
+
+live_history = []
+MAX_HISTORY = 100
 
 # ============================================================
 # HOME
@@ -173,7 +180,24 @@ def receive_sensor_data():
 
         "alerts": alerts
     }
+        # --------------------------------------------------------
+    # ADD REAL WOKWI READING TO LIVE HISTORY
+    # --------------------------------------------------------
 
+    live_history.append({
+        "temperature": temperature,
+        "heart_rate": heart_rate,
+        "spo2": spo2,
+        "fall": fall,
+        "mode": mode,
+        "status": patient_status,
+        "alerts": alerts,
+        "timestamp": datetime.now().isoformat()
+    })
+
+    # Keep only latest 100 real readings
+    if len(live_history) > MAX_HISTORY:
+        live_history.pop(0)
 
     # --------------------------------------------------------
     # PRINT
@@ -284,9 +308,7 @@ def latest():
 )
 def get_history():
 
-    return jsonify(
-        get_sensor_history()
-    )
+    return jsonify(live_history)
 
 
 # ============================================================
