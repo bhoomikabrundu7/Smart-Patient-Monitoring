@@ -1,554 +1,822 @@
+#include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <WiFiClientSecure.h>
+#include <DHT.h>
 
-// =================================
-// Wi-Fi
-// =================================
+// ============================================================
+// CAREMATRIX
+// Smart Patient Monitoring System
+//
+// DATA PATH:
+// Wokwi ESP32
+//      ↓ HTTP
+// Local Flask server.py :5000
+//      ↓
+// Streamlit Dashboard
+// ============================================================
+
+// ============================================================
+// WIFI
+// ============================================================
 
 const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
 
-// =================================
-// Render Flask Backend
-// =================================
-
+// IMPORTANT:
+// This is your LOCAL Flask backend.
+// Do NOT use Render here.
 const char* SERVER_URL =
-    "https://smart-patient-monitoring.onrender.com/sensor-data";
+    "http://host.wokwi.internal:5000/sensor-data";
 
-// =================================
-// Sensor Pins
-// =================================
+// ============================================================
+// HARDWARE PINS
+// ============================================================
 
-#define FALL_PIN 5
+#define DHT_PIN 4
+#define DHT_TYPE DHT22
+
+#define FALL_SENSOR_PIN 5
 #define MODE_BUTTON_PIN 18
 
-// =================================
-// Patient Mode
-// false = NORMAL
-// true  = ABNORMAL
-// =================================
+DHT dht(DHT_PIN, DHT_TYPE);
+
+// ============================================================
+// TIMING
+// ============================================================
+
+const unsigned long SEND_INTERVAL = 5000;
+
+unsigned long lastSendTime = 0;
+
+// Automatic presentation timing
+const unsigned long NORMAL_TIME = 15000;
+const unsigned long ABNORMAL_TIME = 15000;
+const unsigned long FALL_TIME = 10000;
+
+unsigned long modeStartTime = 0;
+
+// ============================================================
+// STATE
+// ============================================================
 
 bool abnormalMode = false;
-
-// =================================
-// Button State
-// =================================
+bool automaticFall = false;
 
 bool lastButtonState = HIGH;
 
+// ============================================================
+// WIFI CONNECTION
+// ============================================================
 
-// =================================
-// SEND DATA TO PYTHON BACKEND
-// =================================
+bool connectWiFi()
+{
+    Serial.println();
+    Serial.println("Connecting to Wi-Fi...");
 
-void sendSensorData(
+    WiFi.mode(WIFI_STA);
+
+    WiFi.begin(
+        WIFI_SSID,
+        WIFI_PASSWORD
+    );
+
+    int attempts = 0;
+
+    while (
+        WiFi.status() != WL_CONNECTED &&
+        attempts < 30
+    )
+    {
+        delay(500);
+
+        Serial.print(".");
+
+        attempts++;
+    }
+
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.println("Wi-Fi connected!");
+
+        Serial.print("ESP32 IP Address: ");
+        Serial.println(WiFi.localIP());
+
+        return true;
+    }
+
+    Serial.println("Wi-Fi connection failed!");
+
+    return false;
+}
+
+// ============================================================
+// SEND DATA TO LOCAL SERVER
+// ============================================================
+
+bool sendSensorData(
     float temperature,
     int heartRate,
     int spo2,
-    bool fallDetected
-) {
-
-  Serial.println("DEBUG: Entering sendSensorData()");
-
-  // =================================
-  // Check Wi-Fi
-  // =================================
-
-  if (WiFi.status() != WL_CONNECTED) {
-
-    Serial.println("Wi-Fi not connected!");
-
-    return;
-  }
-
-  // =================================
-  // HTTPS Client
-  // =================================
-
-WiFiClientSecure client;
-
-client.setInsecure();
-client.setTimeout(15000);
-
-HTTPClient http;
-http.setTimeout(15000);
-
-  Serial.println();
-  Serial.println("Connecting to Render backend:");
-  Serial.println(SERVER_URL);
-
-  // =================================
-  // Start HTTPS Connection
-  // =================================
-
-  if (!http.begin(client, SERVER_URL)) {
+    bool fallDetected,
+    const char* mode
+)
+{
+    Serial.println();
+    Serial.println("=================================");
+    Serial.println("DEBUG: Sending sensor data...");
+    Serial.println("Sending to LOCAL BACKEND...");
 
     Serial.println(
-        "HTTP connection initialization failed!"
+        "http://host.wokwi.internal:5000/sensor-data"
     );
 
-    return;
-  }
+    // --------------------------------------------------------
+    // WIFI CHECK
+    // --------------------------------------------------------
 
-  // =================================
-  // HTTP Header
-  // =================================
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println(
+            "Wi-Fi disconnected!"
+        );
 
-  http.addHeader(
-      "Content-Type",
-      "application/json"
-  );
+        if (!connectWiFi())
+        {
+            Serial.println(
+                "Wi-Fi reconnect failed!"
+            );
 
-  // =================================
-  // Create JSON
-  // =================================
+            return false;
+        }
+    }
 
-  String jsonData = "{";
+    // --------------------------------------------------------
+    // CREATE JSON
+    // --------------------------------------------------------
 
-  jsonData += "\"temperature\":";
-  jsonData += String(temperature, 1);
+    String jsonData = "{";
 
-  jsonData += ",\"heart_rate\":";
-  jsonData += String(heartRate);
+    jsonData += "\"temperature\":";
+    jsonData += String(
+        temperature,
+        1
+    );
 
-  jsonData += ",\"spo2\":";
-  jsonData += String(spo2);
+    jsonData += ",\"heart_rate\":";
+    jsonData += String(
+        heartRate
+    );
 
-  jsonData += ",\"fall\":";
+    jsonData += ",\"spo2\":";
+    jsonData += String(
+        spo2
+    );
 
-  if (fallDetected) {
+    jsonData += ",\"fall\":";
 
-    jsonData += "true";
+    if (fallDetected)
+    {
+        jsonData += "true";
+    }
+    else
+    {
+        jsonData += "false";
+    }
 
-  } else {
+    jsonData += ",\"mode\":\"";
+    jsonData += mode;
+    jsonData += "\"}";
 
-    jsonData += "false";
-  }
+    // --------------------------------------------------------
+    // PRINT JSON
+    // --------------------------------------------------------
 
-  jsonData += "}";
+    Serial.println();
+    Serial.println("Sending:");
+    Serial.println(jsonData);
 
-  // =================================
-  // Display JSON
-  // =================================
+    // --------------------------------------------------------
+    // HTTP
+    // --------------------------------------------------------
 
-  Serial.println();
-  Serial.println(
-      "Sending data to Render:"
-  );
+    HTTPClient http;
 
-  Serial.println(jsonData);
+    http.setConnectTimeout(10000);
+    http.setTimeout(10000);
 
-  // =================================
-  // Send POST Request
-  // =================================
+    Serial.println();
+    Serial.println("Opening HTTP connection...");
 
-  int httpResponseCode =
-      http.POST(jsonData);
+    if (!http.begin(SERVER_URL))
+    {
+        Serial.println(
+            "HTTP begin FAILED!"
+        );
 
-  // =================================
-  // Response
-  // =================================
+        return false;
+    }
 
-  Serial.print(
-      "HTTP Response Code: "
-  );
+    http.addHeader(
+        "Content-Type",
+        "application/json"
+    );
 
-  Serial.println(
-      httpResponseCode
-  );
+    http.addHeader(
+        "Accept",
+        "application/json"
+    );
 
-  if (httpResponseCode > 0) {
+    Serial.println(
+        "Sending HTTP POST..."
+    );
 
-    String response =
-        http.getString();
+    int responseCode =
+        http.POST(jsonData);
+
+    // --------------------------------------------------------
+    // RESPONSE
+    // --------------------------------------------------------
 
     Serial.print(
-        "Backend Response: "
+        "HTTP Response Code: "
     );
 
     Serial.println(
-        response
+        responseCode
     );
 
-  } else {
+    if (responseCode > 0)
+    {
+        String response =
+            http.getString();
 
-    Serial.print(
-        "HTTP Error: "
-    );
+        Serial.println();
+        Serial.println(
+            "Server response:"
+        );
 
+        Serial.println(
+            response
+        );
+    }
+    else
+    {
+        Serial.print(
+            "HTTP Error: "
+        );
+
+        Serial.println(
+            http.errorToString(
+                responseCode
+            )
+        );
+    }
+
+    http.end();
+
+    // --------------------------------------------------------
+    // SUCCESS
+    // --------------------------------------------------------
+
+    if (
+        responseCode >= 200 &&
+        responseCode < 300
+    )
+    {
+        Serial.println();
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println(
+            "SUCCESS: Data sent to local backend!"
+        );
+
+        Serial.println(
+            "================================="
+        );
+
+        return true;
+    }
+
+    Serial.println();
     Serial.println(
-        httpResponseCode
+        "ERROR: Local backend did not accept data."
     );
-  }
 
-  // =================================
-  // Close Connection
-  // =================================
-
-  http.end();
-
-  Serial.println(
-      "---------------------------------"
-  );
+    return false;
 }
 
-
-// =================================
+// ============================================================
 // SETUP
-// =================================
+// ============================================================
 
-void setup() {
+void setup()
+{
+    Serial.begin(115200);
 
-  Serial.begin(115200);
+    delay(1000);
 
-  delay(1000);
-
-  // =================================
-  // Project Header
-  // =================================
-
-  Serial.println();
-
-  Serial.println(
-      "================================="
-  );
-
-  Serial.println(
-      "     SMART PATIENT MONITORING"
-  );
-
-  Serial.println(
-      "================================="
-  );
-
-  // =================================
-  // Fall Sensor
-  // =================================
-
-  pinMode(
-      FALL_PIN,
-      INPUT_PULLUP
-  );
-
-  Serial.println(
-      "Fall sensor initialized"
-  );
-
-  // =================================
-  // Mode Button
-  // =================================
-
-  pinMode(
-      MODE_BUTTON_PIN,
-      INPUT_PULLUP
-  );
-
-  Serial.println(
-      "Mode button initialized"
-  );
-
-  // =================================
-  // Wi-Fi
-  // =================================
-
-  WiFi.begin(
-      WIFI_SSID,
-      WIFI_PASSWORD
-  );
-
-  Serial.print(
-      "Connecting to Wi-Fi"
-  );
-
-  int attempts = 0;
-
-  while (
-      WiFi.status() != WL_CONNECTED &&
-      attempts < 30
-  ) {
-
-    delay(500);
-
-    Serial.print(".");
-
-    attempts++;
-  }
-
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-
+    Serial.println();
     Serial.println(
-        "Wi-Fi connected!"
-    );
-
-    Serial.print(
-        "ESP32 IP Address: "
+        "================================="
     );
 
     Serial.println(
-        WiFi.localIP()
+        "          CAREMATRIX"
     );
-
-  } else {
 
     Serial.println(
-        "Wi-Fi connection FAILED!"
+        " Smart Patient Monitoring System"
     );
-  }
 
-  Serial.println(
-      "ESP32 READY"
-  );
+    Serial.println(
+        "================================="
+    );
 
-  Serial.println(
-      "================================="
-  );
-}
+    Serial.println();
 
+    // --------------------------------------------------------
+    // DHT22
+    // --------------------------------------------------------
 
-// =================================
-// LOOP
-// =================================
+    dht.begin();
 
-void loop() {
+    Serial.println(
+        "DHT22 initialized"
+    );
 
-  // =================================
-  // NORMAL / ABNORMAL BUTTON
-  // =================================
+    // --------------------------------------------------------
+    // FALL SENSOR
+    // --------------------------------------------------------
 
-  bool buttonState =
-      digitalRead(
-          MODE_BUTTON_PIN
-      );
+    pinMode(
+        FALL_SENSOR_PIN,
+        INPUT_PULLUP
+    );
 
-  // Detect button press
-  if (
-      lastButtonState == HIGH &&
-      buttonState == LOW
-  ) {
+    Serial.println(
+        "Fall sensor initialized"
+    );
 
-    abnormalMode =
-        !abnormalMode;
+    // --------------------------------------------------------
+    // MODE BUTTON
+    // --------------------------------------------------------
+
+    pinMode(
+        MODE_BUTTON_PIN,
+        INPUT_PULLUP
+    );
+
+    Serial.println(
+        "Mode button initialized"
+    );
+
+    // --------------------------------------------------------
+    // RANDOM
+    // --------------------------------------------------------
+
+    randomSeed(
+        micros()
+    );
+
+    // --------------------------------------------------------
+    // WIFI
+    // --------------------------------------------------------
+
+    connectWiFi();
+
+    // --------------------------------------------------------
+    // READY
+    // --------------------------------------------------------
+
+    Serial.println();
+    Serial.println(
+        "ESP32 READY"
+    );
+
+    Serial.println(
+        "================================="
+    );
 
     Serial.println();
 
     Serial.println(
-        "******** MODE CHANGED ********"
+        "AUTOMATIC PRESENTATION MODE"
     );
 
-    if (abnormalMode) {
+    Serial.println(
+        "NORMAL -> ABNORMAL -> FALL -> NORMAL"
+    );
 
-      Serial.println(
-          "ABNORMAL MODE ACTIVATED"
-      );
+    Serial.println();
 
-    } else {
+    modeStartTime =
+        millis();
 
-      Serial.println(
-          "NORMAL MODE ACTIVATED"
-      );
+    // Send first reading immediately
+    lastSendTime =
+        millis() - SEND_INTERVAL;
+}
+
+// ============================================================
+// LOOP
+// ============================================================
+
+void loop()
+{
+    // ========================================================
+    // MODE BUTTON
+    // ========================================================
+
+    bool buttonState =
+        digitalRead(
+            MODE_BUTTON_PIN
+        );
+
+    if (
+        buttonState == LOW &&
+        lastButtonState == HIGH
+    )
+    {
+        abnormalMode =
+            !abnormalMode;
+
+        automaticFall =
+            false;
+
+        modeStartTime =
+            millis();
+
+        Serial.println();
+        Serial.println(
+            "******** MODE CHANGED ********"
+        );
+
+        if (abnormalMode)
+        {
+            Serial.println(
+                "ABNORMAL MODE ACTIVATED"
+            );
+        }
+        else
+        {
+            Serial.println(
+                "NORMAL MODE ACTIVATED"
+            );
+        }
+
+        Serial.println(
+            "*******************************"
+        );
+
+        delay(300);
     }
 
+    lastButtonState =
+        buttonState;
+
+    // ========================================================
+    // PHYSICAL FALL SENSOR
+    // ========================================================
+
+    bool physicalFall =
+        digitalRead(
+            FALL_SENSOR_PIN
+        ) == LOW;
+
+    // ========================================================
+    // AUTOMATIC PRESENTATION MODE
+    // ========================================================
+
+    unsigned long elapsed =
+        millis() - modeStartTime;
+
+    // --------------------------------------------------------
+    // NORMAL -> ABNORMAL
+    // --------------------------------------------------------
+
+    if (
+        !abnormalMode &&
+        !automaticFall &&
+        elapsed >= NORMAL_TIME
+    )
+    {
+        abnormalMode =
+            true;
+
+        modeStartTime =
+            millis();
+
+        Serial.println();
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println(
+            "AUTOMATIC EVENT:"
+        );
+
+        Serial.println(
+            "NORMAL -> ABNORMAL"
+        );
+
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println();
+    }
+
+    // --------------------------------------------------------
+    // ABNORMAL -> FALL
+    // --------------------------------------------------------
+
+    else if (
+        abnormalMode &&
+        !automaticFall &&
+        elapsed >= ABNORMAL_TIME
+    )
+    {
+        automaticFall =
+            true;
+
+        modeStartTime =
+            millis();
+
+        Serial.println();
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println(
+            "AUTOMATIC EVENT:"
+        );
+
+        Serial.println(
+            "ABNORMAL -> FALL DETECTED"
+        );
+
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println();
+    }
+
+    // --------------------------------------------------------
+    // FALL -> NORMAL
+    // --------------------------------------------------------
+
+    else if (
+        abnormalMode &&
+        automaticFall &&
+        elapsed >= FALL_TIME
+    )
+    {
+        automaticFall =
+            false;
+
+        abnormalMode =
+            false;
+
+        modeStartTime =
+            millis();
+
+        Serial.println();
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println(
+            "AUTOMATIC EVENT:"
+        );
+
+        Serial.println(
+            "FALL -> NORMAL"
+        );
+
+        Serial.println(
+            "================================="
+        );
+
+        Serial.println();
+    }
+
+    // ========================================================
+    // TEMPERATURE
+    // ========================================================
+
+    float temperature =
+        dht.readTemperature();
+
+    if (isnan(temperature))
+    {
+        temperature =
+            36.5;
+    }
+
+    // For presentation mode
+    if (abnormalMode)
+    {
+        temperature =
+            38.0 +
+            (
+                random(
+                    0,
+                    11
+                ) / 10.0
+            );
+    }
+
+    // ========================================================
+    // HEART RATE
+    // ========================================================
+
+    int heartRate;
+
+    if (abnormalMode)
+    {
+        heartRate =
+            random(
+                105,
+                126
+            );
+    }
+    else
+    {
+        heartRate =
+            random(
+                70,
+                91
+            );
+    }
+
+    // ========================================================
+    // SPO2
+    // ========================================================
+
+    int spo2;
+
+    if (abnormalMode)
+    {
+        spo2 =
+            random(
+                88,
+                94
+            );
+    }
+    else
+    {
+        spo2 =
+            random(
+                96,
+                101
+            );
+    }
+
+    // ========================================================
+    // FALL STATUS
+    // ========================================================
+
+    bool fallDetected =
+        physicalFall ||
+        automaticFall;
+
+    // ========================================================
+    // MODE
+    // ========================================================
+
+    const char* mode =
+        abnormalMode
+            ? "ABNORMAL"
+            : "NORMAL";
+
+    // ========================================================
+    // PATIENT STATUS
+    // ========================================================
+
+    const char* patientStatus;
+
+    if (
+        abnormalMode ||
+        fallDetected
+    )
+    {
+        patientStatus =
+            "ABNORMAL";
+    }
+    else
+    {
+        patientStatus =
+            "NORMAL";
+    }
+
+    // ========================================================
+    // SERIAL DISPLAY
+    // ========================================================
+
+    Serial.println();
     Serial.println(
-        "*******************************"
+        "================================="
     );
 
-    // Debounce
-    delay(300);
-  }
-
-  lastButtonState =
-      buttonState;
-
-
-  // =================================
-  // FALL SENSOR
-  // =================================
-
-  bool fallDetected =
-      (
-          digitalRead(FALL_PIN)
-          == LOW
-      );
-
-
-  // =================================
-  // PATIENT VALUES
-  // =================================
-
-  int heartRate;
-  int spo2;
-  float temperature;
-
-
-  // =================================
-  // NORMAL MODE
-  // =================================
-
-  if (!abnormalMode) {
-
-    heartRate =
-        random(70, 91);
-
-    spo2 =
-        random(96, 101);
-
-    temperature =
-        random(365, 373) / 10.0;
-
-  }
-
-  // =================================
-  // ABNORMAL MODE
-  // =================================
-
-  else {
-
-    heartRate =
-        random(105, 126);
-
-    spo2 =
-        random(88, 94);
-
-    temperature =
-        random(380, 396) / 10.0;
-  }
-
-
-  // =================================
-  // DISPLAY MODE
-  // =================================
-
-  if (abnormalMode) {
-
-    Serial.println(
-        "MODE: ABNORMAL"
+    Serial.print(
+        "MODE: "
     );
 
-  } else {
-
     Serial.println(
-        "MODE: NORMAL"
-    );
-  }
-
-
-  // =================================
-  // TEMPERATURE
-  // =================================
-
-  Serial.print(
-      "Temperature: "
-  );
-
-  Serial.print(
-      temperature,
-      1
-  );
-
-  Serial.println(
-      " °C"
-  );
-
-
-  // =================================
-  // HEART RATE
-  // =================================
-
-  Serial.print(
-      "Heart Rate: "
-  );
-
-  Serial.print(
-      heartRate
-  );
-
-  Serial.println(
-      " BPM"
-  );
-
-
-  // =================================
-  // SPO2
-  // =================================
-
-  Serial.print(
-      "SpO2: "
-  );
-
-  Serial.print(
-      spo2
-  );
-
-  Serial.println(
-      " %"
-  );
-
-
-  // =================================
-  // FALL STATUS
-  // =================================
-
-  if (fallDetected) {
-
-    Serial.println(
-        "Fall Status: FALL DETECTED"
+        mode
     );
 
-  } else {
-
-    Serial.println(
-        "Fall Status: SAFE"
-    );
-  }
-
-
-  // =================================
-  // PATIENT STATUS
-  // =================================
-
-  if (
-      temperature > 38.0 ||
-      heartRate > 100 ||
-      heartRate < 60 ||
-      spo2 < 94 ||
-      fallDetected
-  ) {
-
-    Serial.println(
-        "Patient Status: ALERT"
+    Serial.print(
+        "Temperature: "
     );
 
-  } else {
+    Serial.print(
+        temperature,
+        2
+    );
 
     Serial.println(
-        "Patient Status: NORMAL"
+        " °C"
     );
-  }
 
+    Serial.print(
+        "Heart Rate: "
+    );
 
-  Serial.println(
-      "---------------------------------"
-  );
+    Serial.print(
+        heartRate
+    );
 
+    Serial.println(
+        " BPM"
+    );
 
-  // =================================
-  // SEND TO RENDER
-  // =================================
+    Serial.print(
+        "SpO2: "
+    );
 
-  sendSensorData(
-      temperature,
-      heartRate,
-      spo2,
-      fallDetected
-  );
+    Serial.print(
+        spo2
+    );
 
+    Serial.println(
+        " %"
+    );
 
-  // =================================
-  // WAIT 2 SECONDS
-  // =================================
+    Serial.print(
+        "Fall Status: "
+    );
 
-  delay(2000);
+    if (fallDetected)
+    {
+        Serial.println(
+            "FALL DETECTED"
+        );
+    }
+    else
+    {
+        Serial.println(
+            "SAFE"
+        );
+    }
+
+    Serial.print(
+        "Patient Status: "
+    );
+
+    Serial.println(
+        patientStatus
+    );
+
+    Serial.println(
+        "---------------------------------"
+    );
+
+    // ========================================================
+    // SEND DATA EVERY 5 SECONDS
+    // ========================================================
+
+    if (
+        millis() - lastSendTime >=
+        SEND_INTERVAL
+    )
+    {
+        lastSendTime =
+            millis();
+
+        sendSensorData(
+            temperature,
+            heartRate,
+            spo2,
+            fallDetected,
+            mode
+        );
+    }
+
+    delay(1000);
 }
