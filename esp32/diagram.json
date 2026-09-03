@@ -1,101 +1,275 @@
 {
   "version": 1,
-  "author": "Bhoomika",
+  "author": "CareMatrix",
   "editor": "wokwi",
+
   "parts": [
     {
       "type": "board-esp32-devkit-c-v4",
       "id": "esp",
-      "top": -201.6,
-      "left": 62.44,
+      "top": 20,
+      "left": 300,
       "attrs": {}
     },
+
     {
       "type": "wokwi-dht22",
       "id": "dht1",
-      "top": -297.3,
-      "left": -15,
+      "top": -100,
+      "left": 40,
       "attrs": {
         "temperature": "36.5",
-        "humidity": "44"
+        "humidity": "50"
       }
     },
+
+    {
+      "type": "wokwi-mpu6050",
+      "id": "mpu1",
+      "top": -100,
+      "left": 520,
+      "attrs": {}
+    },
+
+    {
+      "type": "board-ssd1306",
+      "id": "oled1",
+      "top": 80,
+      "left": 520,
+      "attrs": {
+        "i2cAddress": "0x3c"
+      }
+    },
+
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer1",
+      "top": 270,
+      "left": 550,
+      "attrs": {}
+    },
+
+    {
+      "type": "wokwi-led",
+      "id": "greenLed",
+      "top": 300,
+      "left": 220,
+      "attrs": {
+        "color": "green"
+      }
+    },
+
+    {
+      "type": "wokwi-led",
+      "id": "redLed",
+      "top": 370,
+      "left": 220,
+      "attrs": {
+        "color": "red"
+      }
+    },
+
+    {
+      "type": "wokwi-resistor",
+      "id": "resGreen",
+      "top": 300,
+      "left": 140,
+      "attrs": {
+        "value": "220"
+      }
+    },
+
+    {
+      "type": "wokwi-resistor",
+      "id": "resRed",
+      "top": 370,
+      "left": 140,
+      "attrs": {
+        "value": "220"
+      }
+    },
+
     {
       "type": "wokwi-pushbutton",
-      "id": "btn1",
-      "top": -41.8,
-      "left": -57.6,
+      "id": "fallButton",
+      "top": 450,
+      "left": 300,
       "attrs": {
         "color": "blue",
-        "xray": "1"
-      }
-    },
-    {
-      "type": "wokwi-pushbutton",
-      "id": "btn2",
-      "top": 35,
-      "left": -57.6,
-      "attrs": {
-        "color": "green",
-        "xray": "1"
+        "label": "EMERGENCY / FALL",
+        "bounce": "0"
       }
     }
   ],
+
   "connections": [
+
     [
       "esp:TX",
       "$serialMonitor:RX",
       "",
       []
     ],
+
     [
       "esp:RX",
       "$serialMonitor:TX",
       "",
       []
     ],
+
     [
-      "esp:3V3",
       "dht1:VCC",
-      "purple",
+      "esp:3V3",
+      "red",
       []
     ],
-    [
-      "esp:GND.2",
-      "dht1:GND",
-      "black",
-      []
-    ],
+
     [
       "dht1:SDA",
       "esp:4",
-      "brown",
-      []
-    ],
-    [
-      "esp:GND.1",
-      "btn1:1.l",
-      "black",
-      []
-    ],
-    [
-      "btn1:2.l",
-      "esp:5",
       "green",
       []
     ],
+
     [
-      "btn2:1.r",
-      "esp:GND.3",
-      "white",
+      "dht1:GND",
+      "esp:GND.1",
+      "black",
       []
     ],
+
     [
-      "btn2:2.r",
+      "mpu1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+
+    [
+      "mpu1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+
+    [
+      "mpu1:SDA",
+      "esp:21",
+      "blue",
+      []
+    ],
+
+    [
+      "mpu1:SCL",
+      "esp:22",
+      "yellow",
+      []
+    ],
+
+    [
+      "oled1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+
+    [
+      "oled1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+
+    [
+      "oled1:SDA",
+      "esp:21",
+      "blue",
+      []
+    ],
+
+    [
+      "oled1:SCL",
+      "esp:22",
+      "yellow",
+      []
+    ],
+
+    [
+      "buzzer1:1",
+      "esp:25",
+      "purple",
+      []
+    ],
+
+    [
+      "buzzer1:2",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+
+    [
+      "esp:26",
+      "resGreen:1",
+      "green",
+      []
+    ],
+
+    [
+      "resGreen:2",
+      "greenLed:A",
+      "green",
+      []
+    ],
+
+    [
+      "greenLed:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+
+    [
+      "esp:27",
+      "resRed:1",
+      "red",
+      []
+    ],
+
+    [
+      "resRed:2",
+      "redLed:A",
+      "red",
+      []
+    ],
+
+    [
+      "redLed:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+
+    [
+      "fallButton:1.l",
       "esp:18",
       "blue",
       []
+    ],
+
+    [
+      "fallButton:2.l",
+      "esp:GND.1",
+      "black",
+      []
     ]
   ],
-  "dependencies": {}
+
+  "serialMonitor": {
+    "display": "always",
+    "collapse": false,
+    "convertEol": false,
+    "newline": "lf"
+  }
 }
