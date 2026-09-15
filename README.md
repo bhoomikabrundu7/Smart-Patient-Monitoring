@@ -1,1 +1,1 @@
-
+CareMatrix – Smart Patient Monitoring System is an IoT-based healthcare solution designed to continuously monitor patient health parameters, detect abnormal conditions and emergencies, and provide real-time alerts through a centralized monitoring dashboard
